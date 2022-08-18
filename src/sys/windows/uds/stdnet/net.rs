@@ -12,6 +12,30 @@ use windows_sys::Win32::Networking::WinSock::{self, bind, connect, getpeername, 
 
 use super::socket::Socket;
 use super::{socket_addr, SocketAddr};
+use rand::{distributions::Alphanumeric, Rng};
+
+fn get_temp_path(random_len: usize) -> io::Result<PathBuf> {
+    let dir = std::env::temp_dir();
+    // Retry a few times in case of collisions
+    for _ in 0..10 {
+        let rand_str: String = rand::thread_rng()
+            .sample_iter(&Alphanumeric)
+            .take(random_len)
+            .map(char::from)
+            .collect();
+        let filename = format!(".tmp-{rand_str}.socket");
+        let path = base.join(filename)
+        if matches!(Ok(true), path.try_exists()) {
+            return path;
+        }
+    }
+
+    Err(io::Error::new(
+        io::ErrorKind::AlreadyExists,
+        "too many temporary files exist",
+    ))
+    .with_err_path(|| dir)
+}
 
 /// A Unix stream socket
 ///
@@ -207,8 +231,7 @@ impl UnixStream {
         use std::sync::{Arc, RwLock};
         use std::thread::spawn;
 
-        let dir = tempfile::tempdir()?;
-        let file_path = dir.path().join("socket");
+        let file_path = get_temp_path(10)?;
         let a: Arc<RwLock<Option<io::Result<UnixStream>>>> = Arc::new(RwLock::new(None));
         let ul = UnixListener::bind(&file_path).unwrap();
         let server = {
