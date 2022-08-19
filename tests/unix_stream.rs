@@ -1,12 +1,9 @@
-#![cfg(all(feature = "os-poll", feature = "net"))]
+#![cfg(all(unix, feature = "os-poll", feature = "net"))]
 
-#[cfg(windows)]
-use mio::net::stdnet as net;
 use mio::net::UnixStream;
 use mio::{Interest, Token};
 use std::io::{self, IoSlice, IoSliceMut, Read, Write};
 use std::net::Shutdown;
-#[cfg(unix)]
 use std::os::unix::net;
 use std::path::Path;
 use std::sync::mpsc::channel;
@@ -244,13 +241,7 @@ fn unix_stream_shutdown_write() {
     );
 
     let err = stream.write(DATA2).unwrap_err();
-    #[cfg(unix)]
     assert_eq!(err.kind(), io::ErrorKind::BrokenPipe);
-    #[cfg(windows)]
-    {
-        use windows_sys::Win32::Networking::WinSock::WSAESHUTDOWN;
-        assert_eq!(err.raw_os_error(), Some(WSAESHUTDOWN));
-    }
 
     // Read should be ok
     let mut buf = [0; DEFAULT_BUF_SIZE];
@@ -313,8 +304,8 @@ fn unix_stream_shutdown_both() {
     let err = stream.write(DATA2).unwrap_err();
     #[cfg(unix)]
     assert_eq!(err.kind(), io::ErrorKind::BrokenPipe);
-    #[cfg(windows)]
-    assert_eq!(err.kind(), io::ErrorKind::ConnectionAborted);
+    #[cfg(window)]
+    assert_eq!(err.kind(), io::ErrorKind::ConnectionAbroted);
 
     // Close the connection to allow the remote to shutdown
     drop(stream);

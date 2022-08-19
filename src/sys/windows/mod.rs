@@ -31,28 +31,10 @@ cfg_net! {
         }};
     }
 
-    macro_rules! wsa_syscall {
-        ($fn: ident ( $($arg: expr),* $(,)* ), $err_test: path, $err_value: expr) => {{
-            let res = unsafe { $fn($($arg, )*) };
-            if $err_test(&res, &$err_value) {
-                use windows_sys::Win32::Networking::WinSock::WSAGetLastError;
-                Err(io::Error::from_raw_os_error(unsafe {
-                    WSAGetLastError()
-                }))
-            } else {
-                Ok(res)
-            }
-        }};
-    }
-
     mod net;
 
     pub(crate) mod tcp;
     pub(crate) mod udp;
-    pub mod uds;
-    pub use self::uds::SocketAddr;
-    #[cfg(all(windows, test))]
-    pub use self::uds::stdnet;
 }
 
 cfg_os_ext! {
@@ -102,11 +84,15 @@ cfg_io_source! {
             F: FnOnce(&T) -> io::Result<R>,
         {
             let result = f(io);
-            self.inner.as_ref().map_or(Ok(()), |state| {
-                state
-                    .selector
-                    .reregister(state.sock_state.clone(), state.token, state.interests)
-            })?;
+            if let Err(ref e) = result {
+                if e.kind() == io::ErrorKind::WouldBlock {
+                    self.inner.as_ref().map_or(Ok(()), |state| {
+                        state
+                            .selector
+                            .reregister(state.sock_state.clone(), state.token, state.interests)
+                    })?;
+                }
+            }
             result
         }
 
