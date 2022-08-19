@@ -106,6 +106,20 @@ where
 
     assert_would_block(stream.read(&mut buf));
 
+    // Check write, then read, but don't try another "would block" read before writing.
+    checked_write!(stream.write(DATA1));
+    stream.flush().unwrap();
+    expect_events(
+        &mut poll,
+        &mut events,
+        vec![ExpectEvent::new(ID1, Interest::READABLE)],
+    );
+
+    expect_read!(stream.peek(&mut buf), DATA1);
+    expect_read!(stream.read(&mut buf), DATA1);
+
+    assert!(stream.take_error().unwrap().is_none());
+
     let bufs = [IoSlice::new(DATA1), IoSlice::new(DATA2)];
     let n = stream
         .write_vectored(&bufs)

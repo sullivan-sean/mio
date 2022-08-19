@@ -84,15 +84,12 @@ cfg_io_source! {
             F: FnOnce(&T) -> io::Result<R>,
         {
             let result = f(io);
-            if let Err(ref e) = result {
-                if e.kind() == io::ErrorKind::WouldBlock {
-                    self.inner.as_ref().map_or(Ok(()), |state| {
-                        state
-                            .selector
-                            .reregister(state.sock_state.clone(), state.token, state.interests)
-                    })?;
-                }
-            }
+            // Reregister interests after successful completion of i/o
+            self.inner.as_ref().map_or(Ok(()), |state| {
+                state
+                    .selector
+                    .reregister(state.sock_state.clone(), state.token, state.interests)
+            })?;
             result
         }
 
