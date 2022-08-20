@@ -37,6 +37,58 @@ fn tcp_listener_ipv6() {
 }
 
 #[test]
+fn tcp_listener_multiple_accepts() {
+   let (mut poll, mut events) = init_with_poll();
+    let barrier = Arc::new(Barrier::new(2));
+    let mut buf = [0; 20];
+    let addr = any_local_address();
+
+    let mut listener = TcpListener::bind(addr).unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    assert_socket_non_blocking(&listener);
+    assert_socket_close_on_exec(&listener);
+
+    poll.registry()
+        .register(
+            &mut listener,
+            ID1,
+            Interest::WRITABLE.add(Interest::READABLE),
+        )
+        .unwrap();
+    expect_no_events(&mut poll, &mut events);
+
+    let handle = start_connections(addr, 1, barrier.clone());
+
+    // First connection is opened, try to accept and read.
+    expect_events(
+        &mut poll,
+        &mut events,
+        vec![ExpectEvent::new(ID1, Interest::READABLE)],
+    );
+
+    let (mut stream1, _) = listener.accept().unwrap();
+    assert_would_block(stream1.read(&mut buf));
+    barrier.wait();
+
+    // Second connection is opened, try to accept and read.
+    expect_events(
+        &mut poll,
+        &mut events,
+        vec![ExpectEvent::new(ID1, Interest::READABLE)],
+    );
+
+    let (mut stream1, _) = listener.accept().unwrap();
+    assert_would_block(stream1.read(&mut buf));
+    barrier.wait();
+
+    // We don't expect any more connections.
+    assert_would_block(listener.accept());
+    assert!(listener.take_error().unwrap().is_none());
+    handle.join().unwrap();
+}
+
+#[test]
 fn tcp_listener_std() {
     smoke_test_tcp_listener(any_local_address(), |addr| {
         let listener = net::TcpListener::bind(addr).unwrap();
