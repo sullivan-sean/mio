@@ -1,13 +1,12 @@
-//! Windows specific networking functionality. Mirrors std::os::unix::net.
-
 mod addr;
 mod listener;
 mod socket;
 mod stream;
 
-pub use self::addr::*;
-pub use self::listener::*;
-pub use self::stream::*;
+pub use self::addr::SocketAddr;
+pub(self) use self::addr::socket_addr;
+pub(crate) use self::listener::UnixListener;
+pub(crate) use self::stream::UnixStream;
 
 use std::sync::Once;
 

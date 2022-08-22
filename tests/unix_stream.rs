@@ -1,8 +1,8 @@
-#![cfg(all(feature = "os-poll", feature = "net", any(unix, feature = "os-ext")))]
+#![cfg(all(feature = "os-poll", feature = "net"))]
 
 use mio::net::UnixStream;
 #[cfg(windows)]
-use mio::windows::std::net;
+use mio::net;
 use mio::{Interest, Token};
 use std::io::{self, IoSlice, IoSliceMut, Read, Write};
 use std::net::Shutdown;
@@ -80,6 +80,7 @@ fn unix_stream_connect() {
     handle.join().unwrap();
 }
 
+#[cfg(unix)]
 #[test]
 fn unix_stream_from_std() {
     smoke_test(
