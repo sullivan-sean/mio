@@ -2,6 +2,7 @@ use std::io::{self, IoSlice, IoSliceMut};
 use std::net::Shutdown;
 use std::os::windows::io::{AsRawSocket, FromRawSocket, IntoRawSocket, RawSocket};
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, RwLock};
 use std::{fmt, mem};
 
 use windows_sys::Win32::Foundation::STATUS_SUCCESS;
@@ -79,15 +80,12 @@ impl UnixStream {
     }
 
     pub fn pair() -> io::Result<(Self, Self)> {
-        use std::sync::{Arc, RwLock};
-        use std::thread::spawn;
-
         let file_path = temp_path(10)?;
-        let a: Arc<RwLock<Option<io::Result<UnixStream>>>> = Arc::new(RwLock::new(None));
+        let a = Arc::new(RwLock::new(None::<io::Result<UnixStream>>));
         let ul = UnixListener::bind(&file_path).unwrap();
         let server = {
             let a = a.clone();
-            spawn(move || {
+            std::thread::spawn(move || {
                 let mut store = a.write().unwrap();
                 let stream0 = ul.accept().map(|s| s.0);
                 *store = Some(stream0);
@@ -171,39 +169,38 @@ impl IntoRawSocket for UnixStream {
     }
 }
 
-fn sample_ascii_string(len: usize) -> io::Result<String> {
+fn temp_path(len: usize) -> io::Result<PathBuf> {
+    let dir = std::env::temp_dir();
+
     const GEN_ASCII_STR_CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ\
             abcdefghijklmnopqrstuvwxyz\
             0123456789-_";
     let mut buf: Vec<u8> = vec![0; len];
-    for chunk in buf.chunks_mut(u32::max_value() as usize) {
-        syscall!(
-            BCryptGenRandom(
-                0,
-                chunk.as_mut_ptr(),
-                chunk.len() as u32,
-                BCRYPT_USE_SYSTEM_PREFERRED_RNG,
-            ),
-            PartialEq::ne,
-            STATUS_SUCCESS
-        )?;
-    }
-    let result: String = buf
-        .into_iter()
-        .map(|r| {
-            // We pick from 64=2^6 characters so we can use a simple bitshift.
-            let idx = r >> (8 - 6);
-            char::from(GEN_ASCII_STR_CHARSET[idx as usize])
-        })
-        .collect();
-    Ok(result)
-}
 
-fn temp_path(len: usize) -> io::Result<PathBuf> {
-    let dir = std::env::temp_dir();
     // Retry a few times in case of collisions
     for _ in 0..10 {
-        let rand_str = sample_ascii_string(len)?;
+        for chunk in buf.chunks_mut(u32::max_value() as usize) {
+            syscall!(
+                BCryptGenRandom(
+                    0,
+                    chunk.as_mut_ptr(),
+                    chunk.len() as u32,
+                    BCRYPT_USE_SYSTEM_PREFERRED_RNG,
+                ),
+                PartialEq::ne,
+                STATUS_SUCCESS
+            )?;
+        }
+
+        let rand_str: String = buf
+            .into_iter()
+            .map(|r| {
+                // We pick from 64=2^6 characters so we can use a simple bitshift.
+                let idx = r >> (8 - 6);
+                char::from(GEN_ASCII_STR_CHARSET[idx as usize])
+            })
+            .collect();
+
         let filename = format!(".tmp-{rand_str}.socket");
         let path = dir.join(filename);
         if !path.exists() {

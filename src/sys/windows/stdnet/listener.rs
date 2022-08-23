@@ -25,7 +25,11 @@ impl UnixListener {
         let (addr, len) = socket_addr(path.as_ref())?;
 
         wsa_syscall!(
-            bind(inner.as_raw_socket() as _, &addr as *const _ as *const _, len as _),
+            bind(
+                inner.as_raw_socket() as _,
+                &addr as *const _ as *const _,
+                len as _
+            ),
             SOCKET_ERROR
         )?;
         wsa_syscall!(listen(inner.as_raw_socket() as _, 128), SOCKET_ERROR)?;

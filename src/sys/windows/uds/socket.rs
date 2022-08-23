@@ -3,12 +3,10 @@ use std::convert::TryInto;
 use std::io::{self, IoSlice, IoSliceMut};
 use std::mem;
 use std::net::Shutdown;
-use std::os::raw::{c_int, c_ulong};
+use std::os::raw::c_int;
 use std::os::windows::io::{AsRawSocket, FromRawSocket, IntoRawSocket, RawSocket};
-use std::ptr;
 
 use super::init;
-use windows_sys::Win32::Foundation::{SetHandleInformation, HANDLE, HANDLE_FLAG_INHERIT};
 use windows_sys::Win32::Networking::WinSock::{
     self, closesocket, INVALID_SOCKET, SOCKADDR, SOCKET, SOCKET_ERROR, WSABUF,
 };
@@ -27,7 +25,7 @@ impl Socket {
                 WinSock::AF_UNIX.into(),
                 WinSock::SOCK_STREAM.into(),
                 0,
-                ptr::null_mut(),
+                std::ptr::null_mut(),
                 0,
                 WinSock::WSA_FLAG_OVERLAPPED | WinSock::WSA_FLAG_NO_HANDLE_INHERIT,
             ),
@@ -38,14 +36,12 @@ impl Socket {
 
     pub fn accept(&self, storage: *mut SOCKADDR, len: *mut c_int) -> io::Result<Socket> {
         let socket = wsa_syscall!(accept(self.0, storage, len), INVALID_SOCKET)?;
-        let socket = Socket(socket);
-        socket.set_no_inherit()?;
-        Ok(socket)
+        Ok(Socket(socket))
     }
 
     pub fn recv(&self, buf: &mut [u8]) -> io::Result<usize> {
         let ret = wsa_syscall!(
-            recv(self.0, buf.as_mut_ptr() as *mut _, buf.len() as c_int, 0,),
+            recv(self.0, buf.as_mut_ptr().cast(), buf.len() as c_int, 0),
             SOCKET_ERROR
         )?;
         Ok(ret as usize)
@@ -62,7 +58,7 @@ impl Socket {
                 min(bufs.len(), u32::MAX as usize) as u32,
                 &mut total,
                 &mut flags,
-                ptr::null_mut(),
+                std::ptr::null_mut(),
                 None,
             ),
             SOCKET_ERROR
@@ -97,9 +93,7 @@ impl Socket {
                 // > the system owns these buffers and the application may not
                 // > access them.
                 //
-                // So what we're doing is actually UB as `bufs` needs to be `&mut
-                // [IoSlice<'_>]`.
-                //
+                // So what we're doing is actually UB as `bufs` needs to be `mut`
                 // See: https://github.com/rust-lang/socket2-rs/issues/129.
                 //
                 // [1] https://docs.microsoft.com/en-us/windows/win32/api/winsock2/nf-winsock2-wsasend
@@ -115,17 +109,8 @@ impl Socket {
         .map(|_| total as usize)
     }
 
-    fn set_no_inherit(&self) -> io::Result<()> {
-        syscall!(
-            SetHandleInformation(self.0 as HANDLE, HANDLE_FLAG_INHERIT, 0),
-            PartialEq::eq,
-            0
-        )?;
-        Ok(())
-    }
-
     pub fn set_nonblocking(&self, nonblocking: bool) -> io::Result<()> {
-        let mut nonblocking: c_ulong = if nonblocking { 1 } else { 0 };
+        let mut nonblocking = if nonblocking { 1 } else { 0 };
         wsa_syscall!(
             ioctlsocket(self.0, WinSock::FIONBIO, &mut nonblocking),
             SOCKET_ERROR
@@ -139,10 +124,7 @@ impl Socket {
             Shutdown::Read => WinSock::SD_RECEIVE,
             Shutdown::Both => WinSock::SD_BOTH,
         };
-        wsa_syscall!(
-            shutdown(self.0, how.try_into().unwrap()),
-            SOCKET_ERROR
-        )?;
+        wsa_syscall!(shutdown(self.0, how.try_into().unwrap()), SOCKET_ERROR)?;
         Ok(())
     }
 
